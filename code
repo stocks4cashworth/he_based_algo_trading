@@ -1,0 +1,45 @@
+function parseEmailsToSheets() {
+  // 1. Configuration
+  const labelsToProcess = ['Hedgeye/RiskRange', 'Hedgeye/SignalStr', 'Hedgeye/portfolio']; // Add your labels here
+  const processedLabelName = 'complete';
+  
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const completedLabel = GmailApp.getUserLabelByName(processedLabelName) || GmailApp.createLabel(processedLabelName);
+
+  labelsToProcess.forEach(labelName => {
+    // Search for emails with the label that haven't been marked 'complete'
+    const searchQuery = `label:${labelName} -label:${processedLabelName}`;
+    const threads = GmailApp.search(searchQuery);
+    
+    if (threads.length === 0) return;
+
+    // 2. Find or Create the Tab for this label
+    let sheet = ss.getSheetByName(labelName);
+    if (!sheet) {
+      sheet = ss.insertSheet(labelName);
+      sheet.appendRow(['Date', 'Message Body']); // Add Headers
+      sheet.getRange("A1:B1").setFontWeight("bold");
+      sheet.setFrozenRows(1); // Keep headers visible
+    }
+
+    // 3. Process the emails
+    threads.forEach(thread => {
+      const messages = thread.getMessages();
+      
+      messages.forEach(message => {
+        const date = message.getDate();
+        // Fallback logic for empty bodies
+        const body = message.getPlainBody().trim() || "No plain text content found.";
+
+        // Append to the bottom of the specific sheet
+        // Column A: Date | Column B: Message Body
+        sheet.appendRow([date, body]);
+      });
+
+      // 4. Mark thread as complete
+      thread.addLabel(completedLabel);
+    });
+  });
+
+  SpreadsheetApp.getUi().alert('Parsing complete.');
+}
