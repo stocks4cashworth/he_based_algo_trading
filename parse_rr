@@ -1,0 +1,70 @@
+function parseRiskRangeRegex() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sourceSheet = ss.getSheetByName('Hedgeye/RiskRange');
+  const triggerPhrase = "INDEX BUY TRADE SELL TRADE PREV. CLOSE";
+  const exitPhrase = "#OUTBUCKET";
+  
+  if (!sourceSheet) {
+    SpreadsheetApp.getUi().alert('Source sheet not found.');
+    return;
+  }
+
+  let destSheet = ss.getSheetByName('RRparsed') || ss.insertSheet('RRparsed');
+  destSheet.clear();
+  
+  const headers = ['Date', 'Ticker', 'Bull/Bear', 'Low', 'High', 'Pr Close'];
+  destSheet.appendRow(headers);
+  destSheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+
+  const data = sourceSheet.getRange(2, 1, sourceSheet.getLastRow() - 1, 2).getValues();
+  let parsedRows = [];
+
+  data.forEach(row => {
+    const date = row[0];
+    const body = row[1];
+    if (!body) return;
+
+    const lines = body.split(/\r?\n/).map(line => line.trim()).filter(line => line !== "");
+    let isParsing = false;
+    let tempPair = [];
+
+    for (let line of lines) {
+      if (line.includes(exitPhrase)) { isParsing = false; break; }
+      if (line.includes(triggerPhrase)) { isParsing = true; continue; }
+
+      if (isParsing) {
+        tempPair.push(line);
+
+        if (tempPair.length === 2) {
+          // 1. Extract Ticker and Bull/Bear from Line 1
+          // Looks for text before a parenthesis, and text inside parenthesis
+          let tickerMatch = tempPair[0].match(/^([^\(]+)/);
+          let statusMatch = tempPair[0].match(/\((BULLISH|BEARISH)\)/i);
+          
+          let ticker = tickerMatch ? tickerMatch[1].replace(/\*/g, '').trim() : "";
+          let bullBear = statusMatch ? statusMatch[0] : "";
+
+          // 2. Extract the numbers from Line 2
+          // This looks for all numbers (including those with commas and decimals)
+          let numbers = tempPair[1].match(/[\d,\.]+/g);
+          
+          if (numbers && numbers.length >= 3) {
+            // We take the LAST three numbers found in the line
+            let prClose = numbers.pop();
+            let high = numbers.pop();
+            let low = numbers.pop();
+
+            parsedRows.push([date, ticker, bullBear, low, high, prClose]);
+          }
+          
+          tempPair = []; 
+        }
+      }
+    }
+  });
+
+  if (parsedRows.length > 0) {
+    destSheet.getRange(2, 1, parsedRows.length, headers.length).setValues(parsedRows);
+    destSheet.autoResizeColumns(1, headers.length);
+  }
+}
