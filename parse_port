@@ -1,0 +1,39 @@
+function extractPortfolioTickers() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('Hedgeye/portfolio');
+  
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert('Sheet "Hedgeye/portfolio" not found.');
+    return;
+  }
+
+  // Get all data from Column B (starting at row 2)
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+  const range = sheet.getRange(2, 2, lastRow - 1, 1);
+  const values = range.getValues();
+  
+  let results = [];
+
+  values.forEach(row => {
+    let cellContent = row[0].toString();
+    
+    // Regex Logic:
+    // (?<=Macro ETFs by Rank:\s*) -> Look behind for the start phrase
+    // (.*?) -> Non-greedily capture everything
+    // (?=\*) -> Stop when we hit the next asterisk
+    const regex = /(?<=Macro ETFs by Rank:\s*)(.*?)(?=\*)/s;
+    const match = cellContent.match(regex);
+    
+    if (match && match[0]) {
+      // Clean up extra spaces/newlines and push to results
+      results.push([match[0].trim()]);
+    } else {
+      results.push([""]); // Keep the row alignment if no match found
+    }
+  });
+
+  // Write the extracted strings to Column C
+  sheet.getRange(2, 3, results.length, 1).setValues(results);
+  sheet.autoResizeColumn(3);
+}
