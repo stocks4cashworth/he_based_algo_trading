@@ -1,0 +1,62 @@
+function parseSignalToVerticalFinal() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sourceSheet = ss.getSheetByName('Hedgeye/SignalStr');
+  
+  if (!sourceSheet) {
+    SpreadsheetApp.getUi().alert('Sheet "Hedgeye/SignalStr" not found.');
+    return;
+  }
+
+  let destSheet = ss.getSheetByName('SSparsed') || ss.insertSheet('SSparsed');
+  destSheet.clear();
+  
+  // New Header Row Order
+  const headers = ['Ticker', 'Add/Remove', 'Date'];
+  destSheet.appendRow(headers);
+  destSheet.getRange("A1:C1").setFontWeight("bold");
+
+  const lastRow = sourceSheet.getLastRow();
+  if (lastRow < 2) return;
+
+  const data = sourceSheet.getRange(2, 1, lastRow - 1, 2).getValues();
+  let verticalRows = [];
+
+  data.forEach(row => {
+    const date = row[0];
+    const text = row[1].toString();
+    
+    // 1. Isolate the sections by splitting the text at "Removed:"
+    let parts = text.split(/Removed:/i);
+    let addedSection = parts[0] || "";
+    let removedSection = parts[1] || "";
+
+    // 2. Process Added Section
+    let addedMatch = addedSection.match(/Added:?\*?\s*([\s\S]*)/i);
+    if (addedMatch && addedMatch[1]) {
+      let tickers = addedMatch[1]
+        .split(/,|\n/)
+        .map(t => t.trim().replace(/\*/g, '').replace(/[^A-Z]/g, ''))
+        .filter(t => t.length >= 1 && t.length <= 6);
+      
+      // Map to [Ticker, Add/Remove, Date]
+      tickers.forEach(ticker => verticalRows.push([ticker, 'Added', date]));
+    }
+
+    // 3. Process Removed Section
+    let removedClean = removedSection.split(/\(VIEW/i)[0];
+    if (removedClean) {
+      let tickers = removedClean
+        .split(/,|\n/)
+        .map(t => t.trim().replace(/\*/g, '').replace(/[^A-Z]/g, ''))
+        .filter(t => t.length >= 1 && t.length <= 6);
+      
+      // Map to [Ticker, Add/Remove, Date]
+      tickers.forEach(ticker => verticalRows.push([ticker, 'Removed', date]));
+    }
+  });
+
+  if (verticalRows.length > 0) {
+    destSheet.getRange(2, 1, verticalRows.length, 3).setValues(verticalRows);
+    destSheet.autoResizeColumns(1, 3);
+  }
+}
