@@ -1,85 +1,52 @@
 function parseRiskRangeRegex() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sourceSheet = ss.getSheetByName('Hedgeye/RiskRange');
-  const triggerPhrase = "INDEX BUY TRADE SELL TRADE PREV. CLOSE";
-  const exitPhrase = "#OUTBUCKET";
-  
-  if (!sourceSheet) {
-    SpreadsheetApp.getUi().alert('Source sheet not found.');
-    return;
+  const sourceSheet = ss.getSheetByName('Hedgeye/RiskRange'); 
+  const destSheet = ss.getSheetByName('RRParsed') || ss.insertSheet('RRParsed');
+
+  // Set up headers if destination is empty
+  if (destSheet.getLastRow() === 0) {
+    destSheet.appendRow(['Date/Time', 'Ticker', 'Trend', 'Buy Trade', 'Sell Trade', 'Prev Close']);
   }
 
-  let destSheet = ss.getSheetByName('RRparsed') || ss.insertSheet('RRparsed');
-  destSheet.clear();
-  
-  const headers = ['Date', 'Ticker', 'Bull/Bear', 'Low', 'High', 'Pr Close'];
-  destSheet.appendRow(headers);
-  destSheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+  const lastRow = sourceSheet.getLastRow();
+  if (lastRow < 2) return;
 
-  const data = sourceSheet.getRange(2, 1, sourceSheet.getLastRow() - 1, 2).getValues();
+  const data = sourceSheet.getRange(2, 1, lastRow - 1, 2).getValues();
   let parsedRows = [];
 
   data.forEach(row => {
-    const date = row[0];
-    const body = row[1];
+    let body = row[1] ? row[1].toString() : "";
     if (!body) return;
 
-    const lines = body.split(/\r?\n/).map(line => line.trim()).filter(line => line !== "");
-    let isParsing = false;
-    let tempPair = [];
+    // 1. Extract Date
+    const dateRegex = /(\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}\s+[AP]M\s+[A-Z]{3})/i;
+    const dateMatch = body.match(dateRegex);
+    const dateTime = dateMatch ? dateMatch[1].trim() : "Unknown Date";
 
-    for (let line of lines) {
-      if (line.includes(exitPhrase)) { isParsing = false; break; }
-      if (line.includes(triggerPhrase)) { isParsing = true; continue; }
+    // 2. STOPS PARSING AT #OUTBUCKET
+    // Cut the body text off immediately where #OUTBUCKET appears
+    if (body.includes('#OUTBUCKET')) {
+      body = body.split('#OUTBUCKET')[0];
+    }
 
-      if (isParsing) {
-        tempPair.push(line);
+    // 3. Regex to match Ticker, Trend (including NEUTRAL), Buy, Sell, and Prev Close
+    // This looks for: *TICKER (TREND)* \n *Full Name* Buy Level Sell Level Prev Close
+    const rrRegex = /\*([A-Z0-9.\-^]+)\s+\((BULLISH|BEARISH|NEUTRAL)\)\*\s*[\r\n]+\*[^*]+\*\s+([0-9.,]+)\s+([0-9.,]+)\s+([0-9.,]+)/gi;
+    
+    let match;
+    while ((match = rrRegex.exec(body)) !== null) {
+      const ticker    = match[1].toUpperCase();
+      const trend     = match[2].toUpperCase();
+      const buyTrade  = match[3];
+      const sellTrade = match[4];
+      const prevClose = match[5];
 
-        if (tempPair.length === 2) {
-          // 1. Extract Ticker and Bull/Bear from Line 1
-          // Looks for text before a parenthesis, and text inside parenthesis
-          let tickerMatch = tempPair[0].match(/^([^\(]+)/);
-          let statusMatch = tempPair[0].match(/\((BULLISH|BEARISH)\)/i);
-          
-          let ticker = tickerMatch ? tickerMatch[1].replace(/\*/g, '').trim() : "";
-          let bullBear = statusMatch ? statusMatch[0] : "";
-
-          // 2. Extract the numbers from Line 2
-          // This looks for all numbers (including those with commas and decimals)
-          let numbers = tempPair[1].match(/[\d,\.]+/g);
-          
-          if (numbers && numbers.length >= 3) {
-            // We take the LAST three numbers found in the line
-            let prClose = numbers.pop();
-            let high = numbers.pop();
-            let low = numbers.pop();
-
-            parsedRows.push([date, ticker, bullBear, low, high, prClose]);
-          }
-          
-          tempPair = []; 
-        }
-      }
+      parsedRows.push([dateTime, ticker, trend, buyTrade, sellTrade, prevClose]);
     }
   });
 
- if (parsedRows.length > 0) {
-    destSheet.getRange(2, 1, parsedRows.length, headers.length).setValues(parsedRows);
-    
-    // --- NEW LOGIC START ---
-    // 1. Get the updated last row after values are set
-    const lastRowDest = destSheet.getLastRow();
-    
-    // 2. Copy Column A to Column G (assuming G is the 7th column)
-    // We get the range of dates in A2:A and copy to G2:G
-    destSheet.getRange(2, 1, lastRowDest - 1, 1).copyTo(destSheet.getRange(2, 7, lastRowDest - 1, 1));
-    destSheet.getRange(1, 7).setValue('Date Copy').setFontWeight("bold");
-
-    // 3. Sort the whole sheet (A to G) descending based on Column A (index 1)
-    // Range starts from row 2 to avoid sorting the header
-    destSheet.getRange(2, 1, lastRowDest - 1, 7).sort({column: 1, ascending: false});
-    // --- NEW LOGIC END ---
-
-    destSheet.autoResizeColumns(1, 7);
+  // Write out to your destination sheet
+  if (parsedRows.length > 0) {
+    destSheet.getRange(destSheet.getLastRow() + 1, 1, parsedRows.length, 6).setValues(parsedRows);
   }
 }
